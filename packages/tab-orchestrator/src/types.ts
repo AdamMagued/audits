@@ -4,6 +4,8 @@ export type StyleSnapshot = {
 	element: Record<string, string>;
 	before: Record<string, string>;
 	after: Record<string, string>;
+	effectiveBackground?: string;
+	parentBackground?: string;
 };
 
 export type ActiveElementInfo = {

@@ -35,6 +35,20 @@ export type FocusAppearanceOptions = BaseAuditOptions & {
 	 * cause the audit to be much slower, but may reduce false positives in some rare cases
 	 */
 	skipStyleCheck?: boolean;
+
+	/**
+	 * Check the contrast of detected focus indicators against their effective background
+	 * (WCAG 2.4.11 / 1.4.11 3:1 minimum). When enabled, indicators with insufficient contrast
+	 * are treated as no indicator.
+	 * Defaults to false.
+	 */
+	checkContrast?: boolean;
+
+	/**
+	 * The minimum contrast ratio required when checkContrast is enabled.
+	 * Defaults to 3.0.
+	 */
+	minContrastRatio?: number;
 };
 
 type ResolvedOptions = Required<FocusAppearanceOptions>;
@@ -54,6 +68,8 @@ function resolveOptions(options: FocusAppearanceOptions): ResolvedOptions {
 			options.screenshotDiffThreshold ?? DEFAULT_SCREENSHOT_DIFF_THRESHOLD,
 		),
 		skipStyleCheck: options.skipStyleCheck ?? false,
+		checkContrast: options.checkContrast ?? false,
+		minContrastRatio: options.minContrastRatio ?? 3.0,
 		failedElementLimit: options.failedElementLimit ?? DEFAULT_FAILED_ELEMENT_LIMIT,
 		timeout: options.timeout ?? DEFAULT_TIMEOUT,
 	};
@@ -116,7 +132,10 @@ export function createFocusAppearanceAudit(
 			if (
 				!resolved.skipStyleCheck &&
 				snapshot.baselineStyles &&
-				stylesIndicateFocus(snapshot.baselineStyles, focused)
+				stylesIndicateFocus(snapshot.baselineStyles, focused, {
+					checkContrast: resolved.checkContrast,
+					minContrastRatio: resolved.minContrastRatio,
+				})
 			) {
 				detection = "style";
 			} else {

@@ -101,6 +101,7 @@ The following options can be passed to `runFocusAppearanceAudit` as `FocusAppear
 | `screenshotClipBuffer`    | `number`  | `10`                 | Padding (in px) around the element box for the pixel-diff screenshot.                                                            |
 | `screenshotDiffThreshold` | `number`  | `4`                  | Number of pixels that must differ to consider an indicator present. Floored at `1`.                                              |
 | `skipStyleCheck`          | `boolean` | `false`              | Skip the computed-style stage and run a pixel diff for every element. Much slower, but may reduce false positives in rare cases. |
+| `checkContrast`          | `boolean` | `false`              | Check the contrast of detected focus indicators against their effective background (minimum 3:1 ratio). Indicators with insufficient contrast are treated as no indicator. |
 | `failedElementLimit`      | `number`  | `0` (never)          | Finish the audit early once this many elements have failed, leaving the rest unchecked. Useful as a fail-fast signal when you only need to know a page has focus problems, not their full extent. |
 | `timeout`                 | `number`  | `0` (no timeout)     | Limit how long (in ms) the audit runs before returning the results it has gathered so far.                                       |
 

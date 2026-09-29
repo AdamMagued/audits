@@ -3,8 +3,25 @@ import type { StyleSnapshot } from "@a11y-pulse/tab-orchestrator";
 import pixelmatch from "pixelmatch";
 import { PNG } from "pngjs";
 
+import {
+	DEFAULT_MIN_CONTRAST_RATIO,
+	extractBoxShadowColor,
+	hasIndicatorContrast,
+} from "./contrast";
+
 export { bufferedClip } from "@a11y-pulse/browser-adaptor";
 export type { Rect, StyleSnapshot };
+
+export type FocusStyleCheckOptions = {
+	/**
+	 * Check the contrast of detected focus indicators against their effective background
+	 * (WCAG 2.4.11 / 1.4.11 3:1 minimum). When enabled, indicators with insufficient contrast
+	 * are treated as no indicator.
+	 * Defaults to false.
+	 */
+	checkContrast?: boolean;
+	minContrastRatio?: number;
+};
 
 /**
  * Collapse the colour/width of a decoration (outline, each border edge) that is not actually
@@ -115,10 +132,179 @@ export function omitIdleStyleSnapshot(snapshot: StyleSnapshot): StyleSnapshot {
 		element: omitIdleComputedStyles(snapshot.element, false),
 		before: omitIdleComputedStyles(snapshot.before, true),
 		after: omitIdleComputedStyles(snapshot.after, true),
+		...(snapshot.effectiveBackground !== undefined
+			? { effectiveBackground: snapshot.effectiveBackground }
+			: {}),
+		...(snapshot.parentBackground !== undefined
+			? { parentBackground: snapshot.parentBackground }
+			: {}),
 	};
 }
 
-export function stylesIndicateFocus(baseline: StyleSnapshot, focused: StyleSnapshot): boolean {
+function indicatorHasSufficientContrast(
+	baseStyles: Record<string, string>,
+	nextStyles: Record<string, string>,
+	effectiveBg: string,
+	minRatio: number,
+	isPseudo = false,
+): boolean {
+	const elementBg = nextStyles["background-color"] ?? "transparent";
+
+	// 1. Outline
+	const outlineChanged =
+		baseStyles["outline-style"] !== nextStyles["outline-style"] ||
+		baseStyles["outline-width"] !== nextStyles["outline-width"] ||
+		baseStyles["outline-color"] !== nextStyles["outline-color"];
+
+	if (outlineChanged) {
+		const outlineStyle = nextStyles["outline-style"];
+		const outlineWidth = nextStyles["outline-width"];
+		if (outlineStyle && outlineStyle !== "none" && outlineWidth !== "0px") {
+			const outlineColor = nextStyles["outline-color"] || nextStyles.color || "rgb(0, 0, 0)";
+			if (hasIndicatorContrast(outlineColor, effectiveBg, minRatio)) {
+				return true;
+			}
+		} else if (
+			baseStyles["outline-style"] &&
+			baseStyles["outline-style"] !== "none" &&
+			baseStyles["outline-width"] !== "0px"
+		) {
+			// An outline was removed on focus
+			return true;
+		}
+	}
+
+	// 2. Box shadow
+	if (baseStyles["box-shadow"] !== nextStyles["box-shadow"]) {
+		const shadow = nextStyles["box-shadow"];
+		if (shadow && shadow !== "none") {
+			const shadowColor = extractBoxShadowColor(shadow) || nextStyles.color || "rgb(0, 0, 0)";
+			const isInset = shadow.includes("inset");
+			const shadowBg = isInset
+				? elementBg !== "transparent"
+					? elementBg
+					: effectiveBg
+				: effectiveBg;
+			if (hasIndicatorContrast(shadowColor, shadowBg, minRatio)) {
+				return true;
+			}
+		} else if (baseStyles["box-shadow"] && baseStyles["box-shadow"] !== "none") {
+			return true;
+		}
+	}
+
+	// 3. Borders
+	let borderChanged = false;
+	for (const side of ["top", "right", "bottom", "left"] as const) {
+		const sideStyleChanged =
+			baseStyles[`border-${side}-style`] !== nextStyles[`border-${side}-style`] ||
+			baseStyles[`border-${side}-width`] !== nextStyles[`border-${side}-width`] ||
+			baseStyles[`border-${side}-color`] !== nextStyles[`border-${side}-color`];
+		if (sideStyleChanged) {
+			borderChanged = true;
+			const style = nextStyles[`border-${side}-style`];
+			const width = nextStyles[`border-${side}-width`];
+			if (style && style !== "none" && width !== "0px") {
+				const color =
+					nextStyles[`border-${side}-color`] ||
+					nextStyles["border-color"] ||
+					nextStyles.color ||
+					"rgb(0, 0, 0)";
+				if (
+					hasIndicatorContrast(color, effectiveBg, minRatio) ||
+					hasIndicatorContrast(color, elementBg, minRatio)
+				) {
+					return true;
+				}
+			}
+		}
+	}
+	if (
+		borderChanged &&
+		["top", "right", "bottom", "left"].every(
+			(side) =>
+				!nextStyles[`border-${side}-style`] ||
+				nextStyles[`border-${side}-style`] === "none" ||
+				nextStyles[`border-${side}-width`] === "0px",
+		)
+	) {
+		return true;
+	}
+
+	// 4. Background
+	if (baseStyles["background-color"] !== nextStyles["background-color"]) {
+		const newBg = nextStyles["background-color"];
+		const oldBg = baseStyles["background-color"] ?? "transparent";
+		if (newBg && newBg !== "transparent") {
+			if (
+				hasIndicatorContrast(newBg, oldBg, minRatio) ||
+				hasIndicatorContrast(newBg, effectiveBg, minRatio)
+			) {
+				return true;
+			}
+		} else {
+			return true;
+		}
+	}
+	if (baseStyles["background-image"] !== nextStyles["background-image"]) {
+		return true;
+	}
+
+	// 5. Color
+	if (baseStyles.color !== nextStyles.color && nextStyles.color) {
+		const targetBg = elementBg !== "transparent" ? elementBg : effectiveBg;
+		if (hasIndicatorContrast(nextStyles.color, targetBg, minRatio)) {
+			return true;
+		}
+	}
+
+	// 6. Text decoration
+	if (baseStyles["text-decoration"] !== nextStyles["text-decoration"]) {
+		const decorColor = nextStyles["text-decoration-color"] || nextStyles.color || "rgb(0, 0, 0)";
+		const targetBg = elementBg !== "transparent" ? elementBg : effectiveBg;
+		if (hasIndicatorContrast(decorColor, targetBg, minRatio)) {
+			return true;
+		}
+	}
+
+	// 7. Font weight
+	if (baseStyles["font-weight"] !== nextStyles["font-weight"]) {
+		const textColor = nextStyles.color || "rgb(0, 0, 0)";
+		const targetBg = elementBg !== "transparent" ? elementBg : effectiveBg;
+		if (hasIndicatorContrast(textColor, targetBg, minRatio)) {
+			return true;
+		}
+	}
+
+	// 8. Pseudo-element content change
+	if (
+		isPseudo &&
+		baseStyles.content !== nextStyles.content &&
+		nextStyles.content &&
+		nextStyles.content !== "none"
+	) {
+		if (
+			nextStyles["background-color"] &&
+			hasIndicatorContrast(nextStyles["background-color"], effectiveBg, minRatio)
+		) {
+			return true;
+		}
+		// If pseudo-element has no background or border, check color
+		if (nextStyles.color && hasIndicatorContrast(nextStyles.color, effectiveBg, minRatio)) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
+export function stylesIndicateFocus(
+	baseline: StyleSnapshot,
+	focused: StyleSnapshot,
+	options: FocusStyleCheckOptions = {},
+): boolean {
+	let anyDiff = false;
+
 	for (const layer of ["element", "before", "after"] as const) {
 		const base = renderedStyles(baseline[layer]);
 		const next = renderedStyles(focused[layer]);
@@ -129,9 +315,61 @@ export function stylesIndicateFocus(baseline: StyleSnapshot, focused: StyleSnaps
 
 		for (const prop of props) {
 			if (base[prop] !== next[prop]) {
-				return true;
+				anyDiff = true;
+				break;
 			}
 		}
+		if (anyDiff) {
+			break;
+		}
+	}
+
+	if (!anyDiff) {
+		return false;
+	}
+
+	if (!options.checkContrast) {
+		return true;
+	}
+
+	const effectiveBg =
+		focused.effectiveBackground ?? focused.parentBackground ?? "rgb(255, 255, 255)";
+	const minRatio = options.minContrastRatio ?? DEFAULT_MIN_CONTRAST_RATIO;
+
+	if (
+		indicatorHasSufficientContrast(
+			renderedStyles(baseline.element),
+			renderedStyles(focused.element),
+			effectiveBg,
+			minRatio,
+			false,
+		)
+	) {
+		return true;
+	}
+
+	if (
+		indicatorHasSufficientContrast(
+			renderedStyles(baseline.before),
+			renderedStyles(focused.before),
+			effectiveBg,
+			minRatio,
+			true,
+		)
+	) {
+		return true;
+	}
+
+	if (
+		indicatorHasSufficientContrast(
+			renderedStyles(baseline.after),
+			renderedStyles(focused.after),
+			effectiveBg,
+			minRatio,
+			true,
+		)
+	) {
+		return true;
 	}
 
 	return false;

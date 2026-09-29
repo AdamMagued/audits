@@ -738,4 +738,88 @@ describe("runFocusAppearanceAudit", () => {
 		// Same size, anchored so the element sits at the same 10px offset.
 		expect(record.clips[1]).toEqual({ x: 82, y: 86, width: 60, height: 40 });
 	});
+
+	it("fails a focus indicator with insufficient contrast when checkContrast is enabled", async () => {
+		const { adaptor } = fakeAdaptor({
+			tabStops: 1,
+			baseline: {
+				styles: [
+					{
+						element: { "outline-style": "none" },
+						before: {},
+						after: {},
+						effectiveBackground: "rgb(255, 255, 255)",
+					},
+				],
+				entries: [{ index: 1, styleIndex: 0, rect: RECT }],
+			},
+			active: {
+				index: 1,
+				isBody: false,
+				isIframe: false,
+				html: "<button>x</button>",
+				styles: {
+					element: {
+						"outline-style": "solid",
+						"outline-width": "3px",
+						"outline-color": "rgb(255, 255, 255)",
+					},
+					before: {},
+					after: {},
+					effectiveBackground: "rgb(255, 255, 255)",
+				},
+				rect: RECT,
+			},
+		});
+
+		const result = await runFocusAppearanceAudit(adaptor, {
+			checkContrast: true,
+			screenshotSettleDelay: 0,
+		});
+
+		expect(result.elements[0]?.passed).toBe(false);
+		expect(result.elements[0]?.detectionMethod).toBeNull();
+		expect(result.elements[0]?.failureEvidence).toBeDefined();
+	});
+
+	it("passes a focus indicator with insufficient contrast when checkContrast is false (default)", async () => {
+		const { adaptor } = fakeAdaptor({
+			tabStops: 1,
+			baseline: {
+				styles: [
+					{
+						element: { "outline-style": "none" },
+						before: {},
+						after: {},
+						effectiveBackground: "rgb(255, 255, 255)",
+					},
+				],
+				entries: [{ index: 1, styleIndex: 0, rect: RECT }],
+			},
+			active: {
+				index: 1,
+				isBody: false,
+				isIframe: false,
+				html: "<button>x</button>",
+				styles: {
+					element: {
+						"outline-style": "solid",
+						"outline-width": "3px",
+						"outline-color": "rgb(255, 255, 255)",
+					},
+					before: {},
+					after: {},
+					effectiveBackground: "rgb(255, 255, 255)",
+				},
+				rect: RECT,
+			},
+		});
+
+		const result = await runFocusAppearanceAudit(adaptor, {
+			screenshotSettleDelay: 0,
+		});
+
+		expect(result.elements[0]?.passed).toBe(true);
+		expect(result.elements[0]?.detectionMethod).toBe("style");
+	});
 });

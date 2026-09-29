@@ -8,23 +8,6 @@ Automated accessibility testing should always be complementary to manual testing
 
 The following scenarios will cause the audit to report a **pass** even though the element does not have a perceivable focus indicator.
 
-### The indicator has no contrast
-
-If an element's focus style changes but the resulting indicator has no contrast against the background, the audit reports a **pass** with `detectionMethod: "style"`, even though the focus indicator is not visible.
-
-> [!NOTE]
-> This case can be mitigated by using `skipStyleCheck: true` and relying on the much slower pixel diff.
-
-| property | unfocused | on focus |
-| --- | --- | --- |
-| `outline-width` (watched) | `0px` | `3px` |
-| `outline-style` (watched) | `none` | `solid` |
-| `outline-color` (watched) | `#223` | `#fff` |
-
-![Two buttons on a white surface that look identical; the focused one has a white outline that is invisible against the white background](./accuracy/fp-no-contrast.svg)
-
-The style comparison detects that an outline was added, so the element passes the audit. However the white (`#fff`) outline is invisible against the white background, so the element does not actually have a perceivable focus indicator.
-
 ### Ambient motion fools the pixel diff
 
 When the style comparison finds nothing, the pixel diff captures the element plus a small buffer. Any unrelated change inside that buffer can cause the pixel diff to see changes that are not focus indicators, such as animations or blinking text.
@@ -68,3 +51,17 @@ Layout-only properties like `margin`, `padding`, and `transform` are deliberatel
 ![A button that moves up slightly on focus; a dashed outline marks its original position](./accuracy/fn-movement-only.svg)
 
 The audit reports a **fail** with `detectionMethod: null`.
+
+### The indicator has insufficient contrast
+
+When `checkContrast: true` is enabled, focus indicators must meet a 3:1 contrast ratio against their effective background (per WCAG 2.4.11 / 1.4.11). An indicator that changes style but lacks sufficient contrast against its background is treated as no indicator and reported as a **failure**.
+
+| property | unfocused | on focus |
+| --- | --- | --- |
+| `outline-width` (watched) | `0px` | `3px` |
+| `outline-style` (watched) | `none` | `solid` |
+| `outline-color` (watched) | `#223` | `#fff` |
+
+![Two buttons on a white surface that look identical; the focused one has a white outline that is invisible against the white background](./accuracy/fp-no-contrast.svg)
+
+With `checkContrast: true`, the white (`#fff`) outline on a white background fails the 3:1 contrast requirement. The audit treats it as no indicator, falls back to the pixel diff (which also sees no change), and reports a **fail** with `detectionMethod: null`. Without `checkContrast`, this case falls back to the default style pass.
