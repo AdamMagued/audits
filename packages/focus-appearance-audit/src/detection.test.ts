@@ -8,7 +8,10 @@ import {
 	stylesIndicateFocus,
 } from "./detection";
 
-function snapshot(overrides: Partial<Record<string, string>> = {}): StyleSnapshot {
+function snapshot(
+	overrides: Partial<Record<string, string>> = {},
+	extra: { effectiveBackground?: string; parentBackground?: string } = {},
+): StyleSnapshot {
 	const base = {
 		"outline-style": "none",
 		"box-shadow": "none",
@@ -19,6 +22,7 @@ function snapshot(overrides: Partial<Record<string, string>> = {}): StyleSnapsho
 		element: { ...base, ...overrides },
 		before: { content: "none" },
 		after: { content: "none" },
+		...extra,
 	};
 }
 
@@ -125,6 +129,192 @@ describe("stylesIndicateFocus", () => {
 			"border-top-color": "rgb(37, 99, 235)",
 		});
 		expect(stylesIndicateFocus(baseline, focused)).toBe(true);
+	});
+});
+
+describe("stylesIndicateFocus with checkContrast", () => {
+	it("fails a white outline on a white background when checkContrast is true", () => {
+		const baseline = snapshot();
+		const focused = snapshot(
+			{
+				"outline-style": "solid",
+				"outline-width": "3px",
+				"outline-color": "rgb(255, 255, 255)",
+			},
+			{ effectiveBackground: "rgb(255, 255, 255)" },
+		);
+
+		expect(stylesIndicateFocus(baseline, focused, { checkContrast: true })).toBe(false);
+	});
+
+	it("passes a white outline on a white background when checkContrast is false (opt-in)", () => {
+		const baseline = snapshot();
+		const focused = snapshot(
+			{
+				"outline-style": "solid",
+				"outline-width": "3px",
+				"outline-color": "rgb(255, 255, 255)",
+			},
+			{ effectiveBackground: "rgb(255, 255, 255)" },
+		);
+
+		expect(stylesIndicateFocus(baseline, focused, { checkContrast: false })).toBe(true);
+		expect(stylesIndicateFocus(baseline, focused)).toBe(true);
+	});
+
+	it("passes an outline with high contrast (blue on white)", () => {
+		const baseline = snapshot();
+		const focused = snapshot(
+			{
+				"outline-style": "solid",
+				"outline-width": "3px",
+				"outline-color": "rgb(0, 80, 255)",
+			},
+			{ effectiveBackground: "rgb(255, 255, 255)" },
+		);
+
+		expect(stylesIndicateFocus(baseline, focused, { checkContrast: true })).toBe(true);
+	});
+
+	it("passes a white outline against a dark background", () => {
+		const baseline = snapshot();
+		const focused = snapshot(
+			{
+				"outline-style": "solid",
+				"outline-width": "3px",
+				"outline-color": "rgb(255, 255, 255)",
+			},
+			{ effectiveBackground: "rgb(0, 0, 0)" },
+		);
+
+		expect(stylesIndicateFocus(baseline, focused, { checkContrast: true })).toBe(true);
+	});
+
+	it("fails an outline against a gradient where at least one stop has insufficient contrast", () => {
+		const baseline = snapshot();
+		const focused = snapshot(
+			{
+				"outline-style": "solid",
+				"outline-width": "3px",
+				"outline-color": "rgb(255, 255, 255)",
+			},
+			{ effectiveBackground: "linear-gradient(to right, rgb(0, 0, 0), rgb(255, 255, 255))" },
+		);
+
+		expect(stylesIndicateFocus(baseline, focused, { checkContrast: true })).toBe(false);
+	});
+
+	it("passes an outline against a gradient where all stops have sufficient contrast", () => {
+		const baseline = snapshot();
+		const focused = snapshot(
+			{
+				"outline-style": "solid",
+				"outline-width": "3px",
+				"outline-color": "rgb(255, 255, 255)",
+			},
+			{ effectiveBackground: "linear-gradient(to right, rgb(0, 0, 0), rgb(20, 20, 20))" },
+		);
+
+		expect(stylesIndicateFocus(baseline, focused, { checkContrast: true })).toBe(true);
+	});
+
+	it("fails a box-shadow indicator with insufficient contrast", () => {
+		const baseline = snapshot();
+		const focused = snapshot(
+			{
+				"box-shadow": "0 0 0 3px rgb(255, 255, 255)",
+			},
+			{ effectiveBackground: "rgb(255, 255, 255)" },
+		);
+
+		expect(stylesIndicateFocus(baseline, focused, { checkContrast: true })).toBe(false);
+	});
+
+	it("passes a box-shadow indicator with sufficient contrast", () => {
+		const baseline = snapshot();
+		const focused = snapshot(
+			{
+				"box-shadow": "0 0 0 3px rgb(0, 80, 255)",
+			},
+			{ effectiveBackground: "rgb(255, 255, 255)" },
+		);
+
+		expect(stylesIndicateFocus(baseline, focused, { checkContrast: true })).toBe(true);
+	});
+
+	it("fails a border indicator with insufficient contrast", () => {
+		const baseline = snapshot();
+		const focused = snapshot(
+			{
+				"border-top-style": "solid",
+				"border-top-width": "2px",
+				"border-top-color": "rgb(255, 255, 255)",
+				"background-color": "rgb(255, 255, 255)",
+			},
+			{ effectiveBackground: "rgb(255, 255, 255)" },
+		);
+
+		expect(stylesIndicateFocus(baseline, focused, { checkContrast: true })).toBe(false);
+	});
+
+	it("passes a border indicator with sufficient contrast", () => {
+		const baseline = snapshot();
+		const focused = snapshot(
+			{
+				"border-top-style": "solid",
+				"border-top-width": "2px",
+				"border-top-color": "rgb(0, 80, 255)",
+				"background-color": "rgb(255, 255, 255)",
+			},
+			{ effectiveBackground: "rgb(255, 255, 255)" },
+		);
+
+		expect(stylesIndicateFocus(baseline, focused, { checkContrast: true })).toBe(true);
+	});
+
+	it("fails a subtle background color change below 3:1 contrast", () => {
+		const baseline = snapshot({
+			"background-color": "rgb(255, 255, 255)",
+		});
+		const focused = snapshot(
+			{
+				"background-color": "rgb(240, 240, 240)",
+			},
+			{ effectiveBackground: "rgb(255, 255, 255)" },
+		);
+
+		expect(stylesIndicateFocus(baseline, focused, { checkContrast: true })).toBe(false);
+	});
+
+	it("passes a significant background color change above 3:1 contrast", () => {
+		const baseline = snapshot({
+			"background-color": "rgb(255, 255, 255)",
+		});
+		const focused = snapshot(
+			{
+				"background-color": "rgb(0, 80, 255)",
+			},
+			{ effectiveBackground: "rgb(255, 255, 255)" },
+		);
+
+		expect(stylesIndicateFocus(baseline, focused, { checkContrast: true })).toBe(true);
+	});
+
+	it("passes when another indicator has sufficient contrast even if outline fails", () => {
+		const baseline = snapshot({
+			"background-color": "rgb(255, 255, 255)",
+		});
+		const focused = snapshot(
+			{
+				"outline-style": "solid",
+				"outline-width": "3px",
+				"outline-color": "rgb(255, 255, 255)", // 1:1 against white
+				"background-color": "rgb(0, 0, 0)", // 21:1 against white
+			},
+			{ effectiveBackground: "rgb(255, 255, 255)" },
+		);
+
+		expect(stylesIndicateFocus(baseline, focused, { checkContrast: true })).toBe(true);
 	});
 });
 

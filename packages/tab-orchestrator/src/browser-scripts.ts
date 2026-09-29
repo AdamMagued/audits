@@ -54,6 +54,65 @@ export function baselineScript(
 		return `${value.slice(0, MAX_STYLE_VALUE_LENGTH)}#len=${value.length}#h=${hash.toString(36)}`;
 	};
 
+	const getEffectiveBackground = (target: Element): string => {
+		let current: Element | null =
+			target.parentElement ||
+			(target.parentNode && target.parentNode.nodeType === 11
+				? ((target.parentNode as ShadowRoot).host as Element)
+				: null);
+
+		let bgImage: string | null = null;
+		const colorLayers: Array<{ r: number; g: number; b: number; a: number }> = [];
+
+		while (current) {
+			const cs = getComputedStyle(current);
+			const image = cs.getPropertyValue("background-image");
+			if (!bgImage && image && image !== "none") {
+				bgImage = truncateValue(image);
+			}
+
+			const color = cs.getPropertyValue("background-color");
+			if (color && color !== "transparent") {
+				const match = color.match(
+					/rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)(?:\s*,\s*([\d.]+))?\s*\)/,
+				);
+				if (match && match[1] !== undefined && match[2] !== undefined && match[3] !== undefined) {
+					const r = Number.parseFloat(match[1]);
+					const g = Number.parseFloat(match[2]);
+					const b = Number.parseFloat(match[3]);
+					const a = match[4] !== undefined ? Number.parseFloat(match[4]) : 1;
+					if (a > 0) {
+						colorLayers.push({ r, g, b, a });
+						if (a >= 1) {
+							break;
+						}
+					}
+				}
+			}
+
+			current =
+				current.parentElement ||
+				(current.parentNode && current.parentNode.nodeType === 11
+					? ((current.parentNode as ShadowRoot).host as Element)
+					: null);
+		}
+
+		let r = 255;
+		let g = 255;
+		let b = 255;
+		for (const layer of [...colorLayers].reverse()) {
+			r = Math.round(layer.r * layer.a + r * (1 - layer.a));
+			g = Math.round(layer.g * layer.a + g * (1 - layer.a));
+			b = Math.round(layer.b * layer.a + b * (1 - layer.a));
+		}
+
+		if (bgImage) {
+			return `${bgImage} rgb(${r}, ${g}, ${b})`;
+		}
+
+		return `rgb(${r}, ${g}, ${b})`;
+	};
+
 	const snapshot = (el: Element): StyleSnapshot => {
 		const read = (pseudo: string | undefined): Record<string, string> => {
 			const cs = getComputedStyle(el, pseudo);
@@ -70,10 +129,14 @@ export function baselineScript(
 			return out;
 		};
 
+		const effectiveBackground = getEffectiveBackground(el);
+
 		return {
 			element: read(undefined),
 			before: read("::before"),
 			after: read("::after"),
+			effectiveBackground,
+			parentBackground: effectiveBackground,
 		};
 	};
 
@@ -210,7 +273,13 @@ export function probeActiveElementScript(props: string[], markerAttr: string): A
 			isBody: true,
 			isIframe: false,
 			html: "",
-			styles: { element: {}, before: {}, after: {} },
+			styles: {
+				element: {},
+				before: {},
+				after: {},
+				effectiveBackground: "rgb(255, 255, 255)",
+				parentBackground: "rgb(255, 255, 255)",
+			},
 			rect: { x: 0, y: 0, width: 0, height: 0 },
 		};
 	}
@@ -231,6 +300,65 @@ export function probeActiveElementScript(props: string[], markerAttr: string): A
 		}
 
 		return `${value.slice(0, MAX_STYLE_VALUE_LENGTH)}#len=${value.length}#h=${hash.toString(36)}`;
+	};
+
+	const getEffectiveBackground = (target: Element): string => {
+		let current: Element | null =
+			target.parentElement ||
+			(target.parentNode && target.parentNode.nodeType === 11
+				? ((target.parentNode as ShadowRoot).host as Element)
+				: null);
+
+		let bgImage: string | null = null;
+		const colorLayers: Array<{ r: number; g: number; b: number; a: number }> = [];
+
+		while (current) {
+			const cs = getComputedStyle(current);
+			const image = cs.getPropertyValue("background-image");
+			if (!bgImage && image && image !== "none") {
+				bgImage = truncateValue(image);
+			}
+
+			const color = cs.getPropertyValue("background-color");
+			if (color && color !== "transparent") {
+				const match = color.match(
+					/rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)(?:\s*,\s*([\d.]+))?\s*\)/,
+				);
+				if (match && match[1] !== undefined && match[2] !== undefined && match[3] !== undefined) {
+					const r = Number.parseFloat(match[1]);
+					const g = Number.parseFloat(match[2]);
+					const b = Number.parseFloat(match[3]);
+					const a = match[4] !== undefined ? Number.parseFloat(match[4]) : 1;
+					if (a > 0) {
+						colorLayers.push({ r, g, b, a });
+						if (a >= 1) {
+							break;
+						}
+					}
+				}
+			}
+
+			current =
+				current.parentElement ||
+				(current.parentNode && current.parentNode.nodeType === 11
+					? ((current.parentNode as ShadowRoot).host as Element)
+					: null);
+		}
+
+		let r = 255;
+		let g = 255;
+		let b = 255;
+		for (const layer of [...colorLayers].reverse()) {
+			r = Math.round(layer.r * layer.a + r * (1 - layer.a));
+			g = Math.round(layer.g * layer.a + g * (1 - layer.a));
+			b = Math.round(layer.b * layer.a + b * (1 - layer.a));
+		}
+
+		if (bgImage) {
+			return `${bgImage} rgb(${r}, ${g}, ${b})`;
+		}
+
+		return `rgb(${r}, ${g}, ${b})`;
 	};
 
 	const read = (pseudo: string | undefined): Record<string, string> => {
@@ -256,6 +384,8 @@ export function probeActiveElementScript(props: string[], markerAttr: string): A
 	const openingTag = el.cloneNode(false) as Element;
 	openingTag.removeAttribute(markerAttr);
 
+	const effectiveBackground = getEffectiveBackground(el as Element);
+
 	return {
 		index: idxAttr === null ? null : Number(idxAttr),
 		isBody: false,
@@ -265,6 +395,8 @@ export function probeActiveElementScript(props: string[], markerAttr: string): A
 			element: read(undefined),
 			before: read("::before"),
 			after: read("::after"),
+			effectiveBackground,
+			parentBackground: effectiveBackground,
 		},
 		rect: {
 			x: rect.left + window.scrollX,
@@ -431,7 +563,13 @@ export function focusScript(el: Element | null): void {
  */
 export function elementStylesScript(el: Element | null, props: string[]): StyleSnapshot {
 	if (!el) {
-		return { element: {}, before: {}, after: {} };
+		return {
+			element: {},
+			before: {},
+			after: {},
+			effectiveBackground: "rgb(255, 255, 255)",
+			parentBackground: "rgb(255, 255, 255)",
+		};
 	}
 
 	// Must be byte-identical to the copies in baselineScript and probeActiveElementScript: snapshots
@@ -453,6 +591,65 @@ export function elementStylesScript(el: Element | null, props: string[]): StyleS
 		return `${value.slice(0, MAX_STYLE_VALUE_LENGTH)}#len=${value.length}#h=${hash.toString(36)}`;
 	};
 
+	const getEffectiveBackground = (target: Element): string => {
+		let current: Element | null =
+			target.parentElement ||
+			(target.parentNode && target.parentNode.nodeType === 11
+				? ((target.parentNode as ShadowRoot).host as Element)
+				: null);
+
+		let bgImage: string | null = null;
+		const colorLayers: Array<{ r: number; g: number; b: number; a: number }> = [];
+
+		while (current) {
+			const cs = getComputedStyle(current);
+			const image = cs.getPropertyValue("background-image");
+			if (!bgImage && image && image !== "none") {
+				bgImage = truncateValue(image);
+			}
+
+			const color = cs.getPropertyValue("background-color");
+			if (color && color !== "transparent") {
+				const match = color.match(
+					/rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)(?:\s*,\s*([\d.]+))?\s*\)/,
+				);
+				if (match && match[1] !== undefined && match[2] !== undefined && match[3] !== undefined) {
+					const r = Number.parseFloat(match[1]);
+					const g = Number.parseFloat(match[2]);
+					const b = Number.parseFloat(match[3]);
+					const a = match[4] !== undefined ? Number.parseFloat(match[4]) : 1;
+					if (a > 0) {
+						colorLayers.push({ r, g, b, a });
+						if (a >= 1) {
+							break;
+						}
+					}
+				}
+			}
+
+			current =
+				current.parentElement ||
+				(current.parentNode && current.parentNode.nodeType === 11
+					? ((current.parentNode as ShadowRoot).host as Element)
+					: null);
+		}
+
+		let r = 255;
+		let g = 255;
+		let b = 255;
+		for (const layer of [...colorLayers].reverse()) {
+			r = Math.round(layer.r * layer.a + r * (1 - layer.a));
+			g = Math.round(layer.g * layer.a + g * (1 - layer.a));
+			b = Math.round(layer.b * layer.a + b * (1 - layer.a));
+		}
+
+		if (bgImage) {
+			return `${bgImage} rgb(${r}, ${g}, ${b})`;
+		}
+
+		return `rgb(${r}, ${g}, ${b})`;
+	};
+
 	const read = (pseudo: string | undefined): Record<string, string> => {
 		const cs = getComputedStyle(el, pseudo);
 		const out: Record<string, string> = {};
@@ -468,10 +665,14 @@ export function elementStylesScript(el: Element | null, props: string[]): StyleS
 		return out;
 	};
 
+	const effectiveBackground = getEffectiveBackground(el);
+
 	return {
 		element: read(undefined),
 		before: read("::before"),
 		after: read("::after"),
+		effectiveBackground,
+		parentBackground: effectiveBackground,
 	};
 }
 

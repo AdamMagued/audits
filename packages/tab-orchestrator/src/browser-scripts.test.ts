@@ -175,7 +175,9 @@ describe("baseline snapshot DOM state", () => {
 			display: "inline-block",
 			visibility: "visible",
 			getPropertyValue: () => {
-				markerSeenDuringReads.push(el.hasAttribute(MARKER));
+				if (el !== document.body && el !== document.documentElement) {
+					markerSeenDuringReads.push(el.hasAttribute(MARKER));
+				}
 
 				return "none";
 			},

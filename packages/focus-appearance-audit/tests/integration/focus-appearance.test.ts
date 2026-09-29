@@ -65,6 +65,21 @@ describeEachEngine<BrowserAdaptor>(
 			expect(result.summary.failed).toBeGreaterThanOrEqual(2);
 		});
 
+		it("fails a focus indicator with insufficient contrast against the background when checkContrast is enabled", async () => {
+			const result = await runFixture("white-on-white.html", { checkContrast: true });
+			const failed = result.elements.filter((e) => !e.passed);
+			expect(failed).toHaveLength(1);
+			expect(result.summary.failed).toBe(1);
+			expect(failed[0]?.detectionMethod).toBeNull();
+		});
+
+		it("passes a white-on-white indicator when checkContrast is disabled (opt-in)", async () => {
+			const result = await runFixture("white-on-white.html");
+			expect(result.summary.failed).toBe(0);
+			expect(result.summary.passed).toBe(1);
+			expect(result.elements[0]?.detectionMethod).toBe("style");
+		});
+
 		it("flags only the failing element on a mixed page", async () => {
 			const result = await runFixture("mixed.html");
 			const failed = result.elements.filter((e) => !e.passed);
